@@ -67,6 +67,23 @@ func handlerReset(s *State,cmd Command) error{
 	return nil
 }
 
+func handlerUsers(s *State,cmd Command) error{
+	ulist, err := s.db.GetUsers(context.Background())
+	if err != nil {
+		return err
+	}
+
+	for _,u := range ulist {
+		curr := ""
+		if u.Name == s.cfg.CurrentUserName{
+			curr = " (current)"
+		}
+		fmt.Printf("* %s%s\n",u.Name,curr)
+	}
+
+	return nil
+}
+
 func (c *Commands) Run(s *State,cmd Command) error{
 	if com,exists := c.commandList[cmd.Name]; exists{
 		err := com(s,cmd)

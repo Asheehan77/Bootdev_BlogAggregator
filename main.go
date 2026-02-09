@@ -51,6 +51,7 @@ func main(){
 	list.Register("login",handlerLogin)
 	list.Register("register",handlerRegister)
 	list.Register("reset",handlerReset)
+	list.Register("users",handlerUsers)
 	err = list.Run(s,cmd)
 	if err != nil {
 		fmt.Println("Error:",err)
