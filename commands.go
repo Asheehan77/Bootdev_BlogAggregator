@@ -5,8 +5,14 @@ import(
 	"fmt"
 	"time"
 	"context"
+	"html"
 	"github.com/Asheehan77/Bootdev_BlogAggregator/internal/database"
+	"github.com/Asheehan77/Bootdev_BlogAggregator/internal/rss"
 	"github.com/google/uuid"
+)
+
+const(
+	default_feed = "https://www.wagslane.dev/index.xml"
 )
 
 
@@ -84,12 +90,70 @@ func handlerUsers(s *State,cmd Command) error{
 	return nil
 }
 
+func handlerAgg(s *State,cmd Command) error{
+
+	rssf,err := rss.FetchFeed(context.Background(),default_feed)
+	if err != nil {
+		return err
+	}
+
+	rssf.Channel.Title = html.UnescapeString(rssf.Channel.Title)
+	rssf.Channel.Description = html.UnescapeString(rssf.Channel.Description)
+
+	for i := range rssf.Channel.Item{
+		rssf.Channel.Item[i].Title = html.UnescapeString(rssf.Channel.Item[i].Title)
+		rssf.Channel.Item[i].Description = html.UnescapeString(rssf.Channel.Item[i].Description)
+	}
+
+	fmt.Println(rssf)
+	return nil
+}
+
+func handlerAddFeed(s *State,cmd Command) error{
+	if len(cmd.Args) < 2 {
+		return errors.New("Missing arguments for addfeed command. \nUsage: addfeed <name> <url>")
+	}
+	u,err := s.db.GetUser(context.Background(),s.cfg.CurrentUserName)
+	if err != nil {
+		return errors.New("No current user registered.  Please use command: register <username>")
+	}
+
+	feed := database.AddFeedParams{
+		ID: uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name: cmd.Args[0],
+		Url: cmd.Args[1],
+		UserID: u.ID,
+	}
+
+	f, err := s.db.AddFeed(context.Background(),feed)
+	if err != nil {
+		return err
+	}
+	fmt.Println(f)
+	return nil
+}
+
+func handlerGetFeeds(s *State,cmd Command) error{
+	feeds,err := s.db.GetFeeds(context.Background())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Saved Feeds:\n")
+	for _,f := range feeds {
+		fmt.Printf(" - Name: %s\n   Url: %s\n   Saved By: %s\n",f.Name,f.Url,f.Name_2)
+	}
+	return nil
+}
 func (c *Commands) Run(s *State,cmd Command) error{
 	if com,exists := c.commandList[cmd.Name]; exists{
 		err := com(s,cmd)
 		if err != nil{
 			return err
 		}
+	}else{
+		return errors.New("Unknown command")
 	}
 	return nil
 }
