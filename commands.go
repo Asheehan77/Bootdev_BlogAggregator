@@ -25,6 +25,17 @@ type Commands struct {
 	commandList		map[string]func(*State,Command) error
 }
 
+func middlewareLoggedIn(handler func(s *State, cmd Command, user database.User) error) func(*State, Command) error {
+    return func(s *State, cmd Command) error {
+        user, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
+        if err != nil {
+            return err
+        }
+
+        return handler(s, cmd, user)
+    }
+}
+
 func handlerLogin(s *State, cmd Command) error {
 	if len(cmd.Args) == 0 {
 		return errors.New("No arguments for login command")
@@ -109,29 +120,39 @@ func handlerAgg(s *State,cmd Command) error{
 	return nil
 }
 
-func handlerAddFeed(s *State,cmd Command) error{
+func handlerAddFeed(s *State,cmd Command, user database.User) error{
 	if len(cmd.Args) < 2 {
 		return errors.New("Missing arguments for addfeed command. \nUsage: addfeed <name> <url>")
 	}
-	u,err := s.db.GetUser(context.Background(),s.cfg.CurrentUserName)
-	if err != nil {
-		return errors.New("No current user registered.  Please use command: register <username>")
-	}
 
+	feed_id := uuid.New()
 	feed := database.AddFeedParams{
-		ID: uuid.New(),
+		ID: feed_id,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Name: cmd.Args[0],
 		Url: cmd.Args[1],
-		UserID: u.ID,
+		UserID: user.ID,
 	}
 
 	f, err := s.db.AddFeed(context.Background(),feed)
 	if err != nil {
 		return err
 	}
-	fmt.Println(f)
+
+	feed_f := database.CreateFeedFollowParams{
+		ID: uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID: user.ID,
+		FeedID: feed_id,
+	}
+	_,err = s.db.CreateFeedFollow(context.Background(),feed_f)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Name: ",f.Name,"\nUrl: ",f.Url)
 	return nil
 }
 
@@ -146,6 +167,45 @@ func handlerGetFeeds(s *State,cmd Command) error{
 	}
 	return nil
 }
+
+func handlerFollow(s *State,cmd Command, user database.User) error{
+	if len(cmd.Args) < 1 {
+		return errors.New("Missing arguments for follow command. \nUsage: follow <url>")
+	}
+	feed,err := s.db.FeedByUrl(context.Background(),cmd.Args[0])
+	if err != nil {
+		return err
+	}
+
+	follow := database.CreateFeedFollowParams{
+		ID: uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+
+	created_follow,err := s.db.CreateFeedFollow(context.Background(),follow)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s Followed Feed: %s",created_follow.UserName,created_follow.FeedName)
+	return nil
+}
+
+func handlerFollowing(s *State,cmd Command, user database.User) error{
+	feeds, err := s.db.FeedFollowersForUser(context.Background(),user.Name)
+	if err != nil {
+		return nil
+	}
+	fmt.Printf("Current User %s Follows:\n",s.cfg.CurrentUserName)
+	for _,feed := range feeds {
+		fmt.Printf("- %s\n",feed.FeedName)
+	}
+	return nil
+}
+
 func (c *Commands) Run(s *State,cmd Command) error{
 	if com,exists := c.commandList[cmd.Name]; exists{
 		err := com(s,cmd)

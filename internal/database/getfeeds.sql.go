@@ -7,16 +7,19 @@ package database
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const getFeeds = `-- name: GetFeeds :many
-SELECT feeds.name,feeds.url,users.name 
+SELECT feeds.id,feeds.name,feeds.url,users.name 
 FROM feeds 
 INNER JOIN users 
 ON feeds.user_id = users.id
 `
 
 type GetFeedsRow struct {
+	ID     uuid.UUID
 	Name   string
 	Url    string
 	Name_2 string
@@ -31,7 +34,12 @@ func (q *Queries) GetFeeds(ctx context.Context) ([]GetFeedsRow, error) {
 	var items []GetFeedsRow
 	for rows.Next() {
 		var i GetFeedsRow
-		if err := rows.Scan(&i.Name, &i.Url, &i.Name_2); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Url,
+			&i.Name_2,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
