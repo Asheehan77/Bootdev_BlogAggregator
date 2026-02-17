@@ -57,6 +57,8 @@ func main(){
 	list.Register("feeds",handlerGetFeeds)
 	list.Register("follow",middlewareLoggedIn(handlerFollow))
 	list.Register("following",middlewareLoggedIn(handlerFollowing))
+	list.Register("unfollow",middlewareLoggedIn(handlerUnfollow))
+	list.Register("browse",middlewareLoggedIn(handlerBrowse))
 	err = list.Run(s,cmd)
 	if err != nil {
 		fmt.Println("Error:",err)

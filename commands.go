@@ -2,6 +2,7 @@ package main
 
 import(
 	"errors"
+	"strings"
 	"fmt"
 	"time"
 	"context"
@@ -9,12 +10,9 @@ import(
 	"github.com/Asheehan77/Bootdev_BlogAggregator/internal/database"
 	"github.com/Asheehan77/Bootdev_BlogAggregator/internal/rss"
 	"github.com/google/uuid"
+	"database/sql"
+	"strconv"
 )
-
-const(
-	default_feed = "https://www.wagslane.dev/index.xml"
-)
-
 
 type Command struct {
 	Name	string
@@ -24,6 +22,10 @@ type Command struct {
 type Commands struct {
 	commandList		map[string]func(*State,Command) error
 }
+
+const(
+	timelayout = "Mon, 2 Jan 2006 15:04:05 -0700"
+)
 
 func middlewareLoggedIn(handler func(s *State, cmd Command, user database.User) error) func(*State, Command) error {
     return func(s *State, cmd Command) error {
@@ -103,20 +105,76 @@ func handlerUsers(s *State,cmd Command) error{
 
 func handlerAgg(s *State,cmd Command) error{
 
-	rssf,err := rss.FetchFeed(context.Background(),default_feed)
+	fmt.Println("Begining Aggregation:")
+
+	dur, err := time.ParseDuration("5s")
 	if err != nil {
 		return err
 	}
+	ticker := time.NewTicker(dur)
 
-	rssf.Channel.Title = html.UnescapeString(rssf.Channel.Title)
-	rssf.Channel.Description = html.UnescapeString(rssf.Channel.Description)
+	for ; ; <-ticker.C {
 
-	for i := range rssf.Channel.Item{
-		rssf.Channel.Item[i].Title = html.UnescapeString(rssf.Channel.Item[i].Title)
-		rssf.Channel.Item[i].Description = html.UnescapeString(rssf.Channel.Item[i].Description)
+		feed, err := s.db.GetNextFeed(context.Background())
+		if err != nil {
+			return err
+		}
+
+		rssf,err := rss.FetchFeed(context.Background(),feed.Url)
+		if err != nil {
+			return err
+		}
+
+		mark := database.MarkFeedParams{
+			ID:	feed.ID,
+			LastFetchedAt: sql.NullTime{
+				Time: time.Now(),
+				Valid: true,
+
+			},
+		}
+
+		err = s.db.MarkFeed(context.Background(),mark)
+		if err != nil {
+			return err
+		}
+
+		rssf.Channel.Title = html.UnescapeString(rssf.Channel.Title)
+		rssf.Channel.Description = html.UnescapeString(rssf.Channel.Description)
+
+		for i := range rssf.Channel.Item{
+			rssf.Channel.Item[i].Title = html.UnescapeString(rssf.Channel.Item[i].Title)
+			rssf.Channel.Item[i].Description = html.UnescapeString(rssf.Channel.Item[i].Description)
+
+			posttime,err := time.Parse(timelayout,rssf.Channel.Item[i].PubDate)
+			if err != nil {
+				posttime = time.Now()
+				fmt.Println("Invalid Time")
+			}
+
+			post := database.CreatePostParams{
+				ID: uuid.New(),
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+				Title: rssf.Channel.Item[i].Title,
+				Url: rssf.Channel.Item[i].Link,
+				Description: rssf.Channel.Item[i].Description,
+				PublishedAt: posttime,
+				FeedID: feed.ID,
+			}
+
+			newpost,err := s.db.CreatePost(context.Background(),post)
+			if err != nil && strings.Contains(err.Error(),"duplicate") != true{
+				fmt.Printf("%v\n",err)
+			}else if strings.Contains(err.Error(),"duplicate") != true{
+				fmt.Println(newpost.Title)
+			}
+
+			
+
+		}
 	}
-
-	fmt.Println(rssf)
+	
 	return nil
 }
 
@@ -190,7 +248,7 @@ func handlerFollow(s *State,cmd Command, user database.User) error{
 		return err
 	}
 
-	fmt.Printf("%s Followed Feed: %s",created_follow.UserName,created_follow.FeedName)
+	fmt.Printf("%s Followed Feed: %s\n",created_follow.UserName,created_follow.FeedName)
 	return nil
 }
 
@@ -202,6 +260,55 @@ func handlerFollowing(s *State,cmd Command, user database.User) error{
 	fmt.Printf("Current User %s Follows:\n",s.cfg.CurrentUserName)
 	for _,feed := range feeds {
 		fmt.Printf("- %s\n",feed.FeedName)
+	}
+	return nil
+}
+
+func handlerUnfollow(s *State,cmd Command, user database.User) error{
+	if len(cmd.Args) < 1 {
+		return errors.New("Missing arguments for unfollow command. \nUsage: unfollow <url>")
+	} 
+	feed, err := s.db.FeedByUrl(context.Background(),cmd.Args[0])
+	if err != nil {
+		return nil
+	}
+	feedfollow := database.UnfollowParams{
+		UserID: user.ID,
+		FeedID: feed.ID,
+	}
+	err = s.db.Unfollow(context.Background(),feedfollow)
+	if err != nil{
+		return err
+	}
+	fmt.Println("Feed Unfollowed")
+	return nil
+}
+
+func handlerBrowse(s *State,cmd Command, user database.User) error{
+
+	var limit int
+	var err error
+	limit = 2
+
+	if len(cmd.Args) > 0 {
+		limit, err = strconv.Atoi(cmd.Args[0])
+		if err != nil{
+			return err
+		}
+	}
+
+	getpost := database.GetPostsByUserParams{
+		UserID: user.ID,
+		Limit: int32(limit),
+	}
+
+	posts,err := s.db.GetPostsByUser(context.Background(),getpost)
+	if err != nil {
+		return err
+	}
+
+	for _,post := range posts {
+		fmt.Printf("Title: %s\n Url: %s \n Description: %s\n Publish Date: %s\n\n",post.Title,post.Url,post.Description,post.PublishedAt)
 	}
 	return nil
 }
